@@ -1,0 +1,63 @@
+{
+  "project_info": {
+    "project_number": "298039360041",
+    "firebase_url": "https://score-game-52da4.firebaseio.com",
+    "project_id": "score-game-52da4",
+    "storage_bucket": "score-game-52da4.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:298039360041:android:ca40dbe2565f879c",
+        "android_client_info": {
+          "package_name": "adria.dia6"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "298039360041-tf9ka0i4dm3s8hn4q30ns4nj5mqnndks.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "adria.dia6",
+            "certificate_hash": "bc75ed2e9dd8e155ff51e815b25b5a8e8196dd54"
+          }
+        },
+        {
+          "client_id": "298039360041-rknmmpil9n1bsj5h3tu2bp19aj3f1jms.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "adria.dia6",
+            "certificate_hash": "eb65bbc09428eb246ce4a250bcec73b35b80bb97"
+          }
+        },
+        {
+          "client_id": "298039360041-2gar4c5ag6ebb9jd5acfooh93jmq72nm.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDYVpr1jgn20yGTMsNYzqsiw2UMCIFaJXA"
+        }
+      ],
+      "services": {
+        "analytics_service": {
+          "status": 1
+        },
+        "appinvite_service": {
+          "status": 2,
+          "other_platform_oauth_client": [
+            {
+              "client_id": "298039360041-2gar4c5ag6ebb9jd5acfooh93jmq72nm.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        },
+        "ads_service": {
+          "status": 2
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

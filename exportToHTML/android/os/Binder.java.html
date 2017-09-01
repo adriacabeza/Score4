@@ -1,0 +1,724 @@
+<html>
+<head>
+<title>Binder.java</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.ln { color: #999999; font-weight: normal; font-style: normal; }
+.s0 { color: rgb(128,128,128); font-style: italic; }
+.s1 { color: rgb(0,0,0); }
+.s2 { color: rgb(0,0,128); font-weight: bold; }
+.s3 { color: rgb(128,128,128); font-weight: bold; font-style: italic; }
+.s4 { color: rgb(128,128,128); font-style: italic; }
+.s5 { color: rgb(0,128,0); font-weight: bold; }
+.s6 { color: rgb(0,0,255); }
+</style>
+</head>
+<BODY BGCOLOR="#ffffff">
+<TABLE CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#c0c0c0" >
+<TR><TD><CENTER>
+<FONT FACE="Arial, Helvetica" COLOR="#000000">
+Binder.java</FONT>
+</center></TD></TR></TABLE>
+<pre>
+<span class="s0">/* 
+ * Copyright (C) 2006 The Android Open Source Project 
+ * 
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;); 
+ * you may not use this file except in compliance with the License. 
+ * You may obtain a copy of the License at 
+ * 
+ *      http://www.apache.org/licenses/LICENSE-2.0 
+ * 
+ * Unless required by applicable law or agreed to in writing, software 
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS, 
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. 
+ * See the License for the specific language governing permissions and 
+ * limitations under the License. 
+ */</span><span class="s1"> 
+ 
+</span><span class="s2">package </span><span class="s1">android.os; 
+ 
+</span><span class="s2">import </span><span class="s1">android.util.Log; 
+</span><span class="s2">import </span><span class="s1">android.util.Slog; 
+</span><span class="s2">import </span><span class="s1">com.android.internal.util.FastPrintWriter; 
+</span><span class="s2">import </span><span class="s1">libcore.io.IoUtils; 
+ 
+</span><span class="s2">import </span><span class="s1">java.io.FileDescriptor; 
+</span><span class="s2">import </span><span class="s1">java.io.FileOutputStream; 
+</span><span class="s2">import </span><span class="s1">java.io.IOException; 
+</span><span class="s2">import </span><span class="s1">java.io.PrintWriter; 
+</span><span class="s2">import </span><span class="s1">java.lang.ref.WeakReference; 
+</span><span class="s2">import </span><span class="s1">java.lang.reflect.Modifier; 
+ 
+</span><span class="s0">/** 
+ * Base class for a remotable object, the core part of a lightweight 
+ * remote procedure call mechanism defined by {</span><span class="s3">@link </span><span class="s0">IBinder}. 
+ * This class is an implementation of IBinder that provides 
+ * standard local implementation of such an object. 
+ * 
+ * </span><span class="s4">&lt;p&gt;</span><span class="s0">Most developers will not implement this class directly, instead using the 
+ * </span><span class="s4">&lt;a href=&quot;</span><span class="s0">{</span><span class="s3">@docRoot</span><span class="s0">}guide/components/aidl.html&quot;&gt;aidl</span><span class="s4">&lt;/a&gt; </span><span class="s0">tool to describe the desired 
+ * interface, having it generate the appropriate Binder subclass.  You can, 
+ * however, derive directly from Binder to implement your own custom RPC 
+ * protocol or simply instantiate a raw Binder object directly to use as a 
+ * token that can be shared across processes. 
+ * 
+ * </span><span class="s4">&lt;p&gt;</span><span class="s0">This class is just a basic IPC primitive; it has no impact on an application's 
+ * lifecycle, and is valid only as long as the process that created it continues to run. 
+ * To use this correctly, you must be doing so within the context of a top-level 
+ * application component (a {</span><span class="s3">@link </span><span class="s0">android.app.Service}, {</span><span class="s3">@link </span><span class="s0">android.app.Activity}, 
+ * or {</span><span class="s3">@link </span><span class="s0">android.content.ContentProvider}) that lets the system know your process 
+ * should remain running.</span><span class="s4">&lt;/p&gt;</span><span class="s0"> 
+ * 
+ * </span><span class="s4">&lt;p&gt;</span><span class="s0">You must keep in mind the situations in which your process 
+ * could go away, and thus require that you later re-create a new Binder and re-attach 
+ * it when the process starts again.  For example, if you are using this within an 
+ * {</span><span class="s3">@link </span><span class="s0">android.app.Activity}, your activity's process may be killed any time the 
+ * activity is not started; if the activity is later re-created you will need to 
+ * create a new Binder and hand it back to the correct place again; you need to be 
+ * aware that your process may be started for another reason (for example to receive 
+ * a broadcast) that will not involve re-creating the activity and thus run its code 
+ * to create a new Binder.</span><span class="s4">&lt;/p&gt;</span><span class="s0"> 
+ * 
+ * </span><span class="s3">@see </span><span class="s0">IBinder 
+ */</span><span class="s1"> 
+</span><span class="s2">public class </span><span class="s1">Binder </span><span class="s2">implements </span><span class="s1">IBinder { 
+    </span><span class="s0">/* 
+     * Set this flag to true to detect anonymous, local or member classes 
+     * that extend this Binder class and that are not static. These kind 
+     * of classes can potentially create leaks. 
+     */</span><span class="s1"> 
+    </span><span class="s2">private static final boolean </span><span class="s1">FIND_POTENTIAL_LEAKS = </span><span class="s2">false</span><span class="s1">; 
+    </span><span class="s2">private static final boolean </span><span class="s1">CHECK_PARCEL_SIZE = </span><span class="s2">false</span><span class="s1">; 
+    </span><span class="s2">static final </span><span class="s1">String TAG = </span><span class="s5">&quot;Binder&quot;</span><span class="s1">; 
+ 
+    </span><span class="s0">/** </span><span class="s3">@hide </span><span class="s0">*/</span><span class="s1"> 
+    </span><span class="s2">public static boolean </span><span class="s1">LOG_RUNTIME_EXCEPTION = </span><span class="s2">false</span><span class="s1">; </span><span class="s0">// DO NOT SUBMIT WITH TRUE</span><span class="s1"> 
+ 
+    </span><span class="s0">/** 
+     * Control whether dump() calls are allowed. 
+     */</span><span class="s1"> 
+    </span><span class="s2">private static </span><span class="s1">String sDumpDisabled = </span><span class="s2">null</span><span class="s1">; 
+ 
+    </span><span class="s0">/** 
+     * Global transaction tracker instance for this process. 
+     */</span><span class="s1"> 
+    </span><span class="s2">private static </span><span class="s1">TransactionTracker sTransactionTracker = </span><span class="s2">null</span><span class="s1">; 
+ 
+    </span><span class="s0">// Transaction tracking code.</span><span class="s1"> 
+ 
+    </span><span class="s0">/** 
+     * Flag indicating whether we should be tracing transact calls. 
+     * 
+     */</span><span class="s1"> 
+    </span><span class="s2">private static boolean </span><span class="s1">sTracingEnabled = </span><span class="s2">false</span><span class="s1">; 
+ 
+    </span><span class="s0">/** 
+     * Enable Binder IPC tracing. 
+     * 
+     * </span><span class="s3">@hide</span><span class="s0"> 
+     */</span><span class="s1"> 
+    </span><span class="s2">public static void  </span><span class="s1">enableTracing() { 
+        sTracingEnabled = </span><span class="s2">true</span><span class="s1">; 
+    }; 
+ 
+    </span><span class="s0">/** 
+     * Disable Binder IPC tracing. 
+     * 
+     * </span><span class="s3">@hide</span><span class="s0"> 
+     */</span><span class="s1"> 
+    </span><span class="s2">public static void  </span><span class="s1">disableTracing() { 
+        sTracingEnabled = </span><span class="s2">false</span><span class="s1">; 
+    } 
+ 
+    </span><span class="s0">/** 
+     * Check if binder transaction tracing is enabled. 
+     * 
+     * </span><span class="s3">@hide</span><span class="s0"> 
+     */</span><span class="s1"> 
+    </span><span class="s2">public static boolean </span><span class="s1">isTracingEnabled() { 
+        </span><span class="s2">return </span><span class="s1">sTracingEnabled; 
+    } 
+ 
+    </span><span class="s0">/** 
+     * Get the binder transaction tracker for this process. 
+     * 
+     * </span><span class="s3">@hide</span><span class="s0"> 
+     */</span><span class="s1"> 
+    </span><span class="s2">public synchronized static </span><span class="s1">TransactionTracker getTransactionTracker() { 
+        </span><span class="s2">if </span><span class="s1">(sTransactionTracker == </span><span class="s2">null</span><span class="s1">) 
+            sTransactionTracker = </span><span class="s2">new </span><span class="s1">TransactionTracker(); 
+        </span><span class="s2">return </span><span class="s1">sTransactionTracker; 
+    } 
+ 
+    </span><span class="s0">/* mObject is used by native code, do not remove or rename */</span><span class="s1"> 
+    </span><span class="s2">private long </span><span class="s1">mObject; 
+    </span><span class="s2">private </span><span class="s1">IInterface mOwner; 
+    </span><span class="s2">private </span><span class="s1">String mDescriptor; 
+ 
+    </span><span class="s0">/** 
+     * Return the ID of the process that sent you the current transaction 
+     * that is being processed.  This pid can be used with higher-level 
+     * system services to determine its identity and check permissions. 
+     * If the current thread is not currently executing an incoming transaction, 
+     * then its own pid is returned. 
+     */</span><span class="s1"> 
+    </span><span class="s2">public static final native int </span><span class="s1">getCallingPid(); 
+     
+    </span><span class="s0">/** 
+     * Return the Linux uid assigned to the process that sent you the 
+     * current transaction that is being processed.  This uid can be used with 
+     * higher-level system services to determine its identity and check 
+     * permissions.  If the current thread is not currently executing an 
+     * incoming transaction, then its own uid is returned. 
+     */</span><span class="s1"> 
+    </span><span class="s2">public static final native int </span><span class="s1">getCallingUid(); 
+ 
+    </span><span class="s0">/** 
+     * Return the UserHandle assigned to the process that sent you the 
+     * current transaction that is being processed.  This is the user 
+     * of the caller.  It is distinct from {</span><span class="s3">@link </span><span class="s0">#getCallingUid()} in that a 
+     * particular user will have multiple distinct apps running under it each 
+     * with their own uid.  If the current thread is not currently executing an 
+     * incoming transaction, then its own UserHandle is returned. 
+     */</span><span class="s1"> 
+    </span><span class="s2">public static final </span><span class="s1">UserHandle getCallingUserHandle() { 
+        </span><span class="s2">return </span><span class="s1">UserHandle.of(UserHandle.getUserId(getCallingUid())); 
+    } 
+ 
+    </span><span class="s0">/** 
+     * Reset the identity of the incoming IPC on the current thread.  This can 
+     * be useful if, while handling an incoming call, you will be calling 
+     * on interfaces of other objects that may be local to your process and 
+     * need to do permission checks on the calls coming into them (so they 
+     * will check the permission of your own local process, and not whatever 
+     * process originally called you). 
+     * 
+     * </span><span class="s3">@return </span><span class="s0">Returns an opaque token that can be used to restore the 
+     * original calling identity by passing it to 
+     * {</span><span class="s3">@link </span><span class="s0">#restoreCallingIdentity(long)}. 
+     * 
+     * </span><span class="s3">@see </span><span class="s0">#getCallingPid() 
+     * </span><span class="s3">@see </span><span class="s0">#getCallingUid() 
+     * </span><span class="s3">@see </span><span class="s0">#restoreCallingIdentity(long) 
+     */</span><span class="s1"> 
+    </span><span class="s2">public static final native long </span><span class="s1">clearCallingIdentity(); 
+ 
+    </span><span class="s0">/** 
+     * Restore the identity of the incoming IPC on the current thread 
+     * back to a previously identity that was returned by {</span><span class="s3">@link</span><span class="s0"> 
+     * #clearCallingIdentity}. 
+     * 
+     * </span><span class="s3">@param </span><span class="s0">token The opaque token that was previously returned by 
+     * {</span><span class="s3">@link </span><span class="s0">#clearCallingIdentity}. 
+     * 
+     * </span><span class="s3">@see </span><span class="s0">#clearCallingIdentity 
+     */</span><span class="s1"> 
+    </span><span class="s2">public static final native void </span><span class="s1">restoreCallingIdentity(</span><span class="s2">long </span><span class="s1">token); 
+ 
+    </span><span class="s0">/** 
+     * Sets the native thread-local StrictMode policy mask. 
+     * 
+     * </span><span class="s4">&lt;p&gt;</span><span class="s0">The StrictMode settings are kept in two places: a Java-level 
+     * threadlocal for libcore/Dalvik, and a native threadlocal (set 
+     * here) for propagation via Binder calls.  This is a little 
+     * unfortunate, but necessary to break otherwise more unfortunate 
+     * dependencies either of Dalvik on Android, or Android 
+     * native-only code on Dalvik. 
+     * 
+     * </span><span class="s3">@see </span><span class="s0">StrictMode 
+     * </span><span class="s3">@hide</span><span class="s0"> 
+     */</span><span class="s1"> 
+    </span><span class="s2">public static final native void </span><span class="s1">setThreadStrictModePolicy(</span><span class="s2">int </span><span class="s1">policyMask); 
+ 
+    </span><span class="s0">/** 
+     * Gets the current native thread-local StrictMode policy mask. 
+     * 
+     * </span><span class="s3">@see </span><span class="s0">#setThreadStrictModePolicy 
+     * </span><span class="s3">@hide</span><span class="s0"> 
+     */</span><span class="s1"> 
+    </span><span class="s2">public static final native int </span><span class="s1">getThreadStrictModePolicy(); 
+ 
+    </span><span class="s0">/** 
+     * Flush any Binder commands pending in the current thread to the kernel 
+     * driver.  This can be 
+     * useful to call before performing an operation that may block for a long 
+     * time, to ensure that any pending object references have been released 
+     * in order to prevent the process from holding on to objects longer than 
+     * it needs to. 
+     */</span><span class="s1"> 
+    </span><span class="s2">public static final native void </span><span class="s1">flushPendingCommands(); 
+     
+    </span><span class="s0">/** 
+     * Add the calling thread to the IPC thread pool.  This function does 
+     * not return until the current process is exiting. 
+     */</span><span class="s1"> 
+    </span><span class="s2">public static final native void </span><span class="s1">joinThreadPool(); 
+ 
+    </span><span class="s0">/** 
+     * Returns true if the specified interface is a proxy. 
+     * </span><span class="s3">@hide</span><span class="s0"> 
+     */</span><span class="s1"> 
+    </span><span class="s2">public static final boolean </span><span class="s1">isProxy(IInterface iface) { 
+        </span><span class="s2">return </span><span class="s1">iface.asBinder() != iface; 
+    } 
+ 
+    </span><span class="s0">/** 
+     * Call blocks until the number of executing binder threads is less 
+     * than the maximum number of binder threads allowed for this process. 
+     * </span><span class="s3">@hide</span><span class="s0"> 
+     */</span><span class="s1"> 
+    </span><span class="s2">public static final native void </span><span class="s1">blockUntilThreadAvailable(); 
+ 
+    </span><span class="s0">/** 
+     * Default constructor initializes the object. 
+     */</span><span class="s1"> 
+    </span><span class="s2">public </span><span class="s1">Binder() { 
+        init(); 
+ 
+        </span><span class="s2">if </span><span class="s1">(FIND_POTENTIAL_LEAKS) { 
+            </span><span class="s2">final </span><span class="s1">Class&lt;? </span><span class="s2">extends </span><span class="s1">Binder&gt; klass = getClass(); 
+            </span><span class="s2">if </span><span class="s1">((klass.isAnonymousClass() || klass.isMemberClass() || klass.isLocalClass()) &amp;&amp; 
+                    (klass.getModifiers() &amp; Modifier.STATIC) == </span><span class="s6">0</span><span class="s1">) { 
+                Log.w(TAG, </span><span class="s5">&quot;The following Binder class should be static or leaks might occur: &quot; </span><span class="s1">+ 
+                    klass.getCanonicalName()); 
+            } 
+        } 
+    } 
+     
+    </span><span class="s0">/** 
+     * Convenience method for associating a specific interface with the Binder. 
+     * After calling, queryLocalInterface() will be implemented for you 
+     * to return the given owner IInterface when the corresponding 
+     * descriptor is requested. 
+     */</span><span class="s1"> 
+    </span><span class="s2">public void </span><span class="s1">attachInterface(IInterface owner, String descriptor) { 
+        mOwner = owner; 
+        mDescriptor = descriptor; 
+    } 
+     
+    </span><span class="s0">/** 
+     * Default implementation returns an empty interface name. 
+     */</span><span class="s1"> 
+    </span><span class="s2">public </span><span class="s1">String getInterfaceDescriptor() { 
+        </span><span class="s2">return </span><span class="s1">mDescriptor; 
+    } 
+ 
+    </span><span class="s0">/** 
+     * Default implementation always returns true -- if you got here, 
+     * the object is alive. 
+     */</span><span class="s1"> 
+    </span><span class="s2">public boolean </span><span class="s1">pingBinder() { 
+        </span><span class="s2">return true</span><span class="s1">; 
+    } 
+ 
+    </span><span class="s0">/** 
+     * {</span><span class="s3">@inheritDoc</span><span class="s0">} 
+     * 
+     * Note that if you're calling on a local binder, this always returns true 
+     * because your process is alive if you're calling it. 
+     */</span><span class="s1"> 
+    </span><span class="s2">public boolean </span><span class="s1">isBinderAlive() { 
+        </span><span class="s2">return true</span><span class="s1">; 
+    } 
+     
+    </span><span class="s0">/** 
+     * Use information supplied to attachInterface() to return the 
+     * associated IInterface if it matches the requested 
+     * descriptor. 
+     */</span><span class="s1"> 
+    </span><span class="s2">public </span><span class="s1">IInterface queryLocalInterface(String descriptor) { 
+        </span><span class="s2">if </span><span class="s1">(mDescriptor.equals(descriptor)) { 
+            </span><span class="s2">return </span><span class="s1">mOwner; 
+        } 
+        </span><span class="s2">return null</span><span class="s1">; 
+    } 
+ 
+    </span><span class="s0">/** 
+     * Control disabling of dump calls in this process.  This is used by the system 
+     * process watchdog to disable incoming dump calls while it has detecting the system 
+     * is hung and is reporting that back to the activity controller.  This is to 
+     * prevent the controller from getting hung up on bug reports at this point. 
+     * </span><span class="s3">@hide</span><span class="s0"> 
+     * 
+     * </span><span class="s3">@param </span><span class="s0">msg The message to show instead of the dump; if null, dumps are 
+     * re-enabled. 
+     */</span><span class="s1"> 
+    </span><span class="s2">public static void </span><span class="s1">setDumpDisabled(String msg) { 
+        </span><span class="s2">synchronized </span><span class="s1">(Binder.</span><span class="s2">class</span><span class="s1">) { 
+            sDumpDisabled = msg; 
+        } 
+    } 
+ 
+    </span><span class="s0">/** 
+     * Default implementation is a stub that returns false.  You will want 
+     * to override this to do the appropriate unmarshalling of transactions. 
+     * 
+     * </span><span class="s4">&lt;p&gt;</span><span class="s0">If you want to call this, call transact(). 
+     */</span><span class="s1"> 
+    </span><span class="s2">protected boolean </span><span class="s1">onTransact(</span><span class="s2">int </span><span class="s1">code, Parcel data, Parcel reply, 
+            </span><span class="s2">int </span><span class="s1">flags) </span><span class="s2">throws </span><span class="s1">RemoteException { 
+        </span><span class="s2">if </span><span class="s1">(code == INTERFACE_TRANSACTION) { 
+            reply.writeString(getInterfaceDescriptor()); 
+            </span><span class="s2">return true</span><span class="s1">; 
+        } </span><span class="s2">else if </span><span class="s1">(code == DUMP_TRANSACTION) { 
+            ParcelFileDescriptor fd = data.readFileDescriptor(); 
+            String[] args = data.readStringArray(); 
+            </span><span class="s2">if </span><span class="s1">(fd != </span><span class="s2">null</span><span class="s1">) { 
+                </span><span class="s2">try </span><span class="s1">{ 
+                    dump(fd.getFileDescriptor(), args); 
+                } </span><span class="s2">finally </span><span class="s1">{ 
+                    IoUtils.closeQuietly(fd); 
+                } 
+            } 
+            </span><span class="s0">// Write the StrictMode header.</span><span class="s1"> 
+            </span><span class="s2">if </span><span class="s1">(reply != </span><span class="s2">null</span><span class="s1">) { 
+                reply.writeNoException(); 
+            } </span><span class="s2">else </span><span class="s1">{ 
+                StrictMode.clearGatheredViolations(); 
+            } 
+            </span><span class="s2">return true</span><span class="s1">; 
+        } </span><span class="s2">else if </span><span class="s1">(code == SHELL_COMMAND_TRANSACTION) { 
+            ParcelFileDescriptor in = data.readFileDescriptor(); 
+            ParcelFileDescriptor out = data.readFileDescriptor(); 
+            ParcelFileDescriptor err = data.readFileDescriptor(); 
+            String[] args = data.readStringArray(); 
+            ResultReceiver resultReceiver = ResultReceiver.CREATOR.createFromParcel(data); 
+            </span><span class="s2">try </span><span class="s1">{ 
+                </span><span class="s2">if </span><span class="s1">(out != </span><span class="s2">null</span><span class="s1">) { 
+                    shellCommand(in != </span><span class="s2">null </span><span class="s1">? in.getFileDescriptor() : </span><span class="s2">null</span><span class="s1">, 
+                            out.getFileDescriptor(), 
+                            err != </span><span class="s2">null </span><span class="s1">? err.getFileDescriptor() : out.getFileDescriptor(), 
+                            args, resultReceiver); 
+                } 
+            } </span><span class="s2">finally </span><span class="s1">{ 
+                IoUtils.closeQuietly(in); 
+                IoUtils.closeQuietly(out); 
+                IoUtils.closeQuietly(err); 
+                </span><span class="s0">// Write the StrictMode header.</span><span class="s1"> 
+                </span><span class="s2">if </span><span class="s1">(reply != </span><span class="s2">null</span><span class="s1">) { 
+                    reply.writeNoException(); 
+                } </span><span class="s2">else </span><span class="s1">{ 
+                    StrictMode.clearGatheredViolations(); 
+                } 
+            } 
+            </span><span class="s2">return true</span><span class="s1">; 
+        } 
+        </span><span class="s2">return false</span><span class="s1">; 
+    } 
+ 
+    </span><span class="s0">/** 
+     * Implemented to call the more convenient version 
+     * {</span><span class="s3">@link </span><span class="s0">#dump(FileDescriptor, PrintWriter, String[])}. 
+     */</span><span class="s1"> 
+    </span><span class="s2">public void </span><span class="s1">dump(FileDescriptor fd, String[] args) { 
+        FileOutputStream fout = </span><span class="s2">new </span><span class="s1">FileOutputStream(fd); 
+        PrintWriter pw = </span><span class="s2">new </span><span class="s1">FastPrintWriter(fout); 
+        </span><span class="s2">try </span><span class="s1">{ 
+            doDump(fd, pw, args); 
+        } </span><span class="s2">finally </span><span class="s1">{ 
+            pw.flush(); 
+        } 
+    } 
+ 
+    </span><span class="s2">void </span><span class="s1">doDump(FileDescriptor fd, PrintWriter pw, String[] args) { 
+        </span><span class="s2">final </span><span class="s1">String disabled; 
+        </span><span class="s2">synchronized </span><span class="s1">(Binder.</span><span class="s2">class</span><span class="s1">) { 
+            disabled = sDumpDisabled; 
+        } 
+        </span><span class="s2">if </span><span class="s1">(disabled == </span><span class="s2">null</span><span class="s1">) { 
+            </span><span class="s2">try </span><span class="s1">{ 
+                dump(fd, pw, args); 
+            } </span><span class="s2">catch </span><span class="s1">(SecurityException e) { 
+                pw.println(</span><span class="s5">&quot;Security exception: &quot; </span><span class="s1">+ e.getMessage()); 
+                </span><span class="s2">throw </span><span class="s1">e; 
+            } </span><span class="s2">catch </span><span class="s1">(Throwable e) { 
+                </span><span class="s0">// Unlike usual calls, in this case if an exception gets thrown</span><span class="s1"> 
+                </span><span class="s0">// back to us we want to print it back in to the dump data, since</span><span class="s1"> 
+                </span><span class="s0">// that is where the caller expects all interesting information to</span><span class="s1"> 
+                </span><span class="s0">// go.</span><span class="s1"> 
+                pw.println(); 
+                pw.println(</span><span class="s5">&quot;Exception occurred while dumping:&quot;</span><span class="s1">); 
+                e.printStackTrace(pw); 
+            } 
+        } </span><span class="s2">else </span><span class="s1">{ 
+            pw.println(sDumpDisabled); 
+        } 
+    } 
+ 
+    </span><span class="s0">/** 
+     * Like {</span><span class="s3">@link </span><span class="s0">#dump(FileDescriptor, String[])}, but ensures the target 
+     * executes asynchronously. 
+     */</span><span class="s1"> 
+    </span><span class="s2">public void </span><span class="s1">dumpAsync(</span><span class="s2">final </span><span class="s1">FileDescriptor fd, </span><span class="s2">final </span><span class="s1">String[] args) { 
+        </span><span class="s2">final </span><span class="s1">FileOutputStream fout = </span><span class="s2">new </span><span class="s1">FileOutputStream(fd); 
+        </span><span class="s2">final </span><span class="s1">PrintWriter pw = </span><span class="s2">new </span><span class="s1">FastPrintWriter(fout); 
+        Thread thr = </span><span class="s2">new </span><span class="s1">Thread(</span><span class="s5">&quot;Binder.dumpAsync&quot;</span><span class="s1">) { 
+            </span><span class="s2">public void </span><span class="s1">run() { 
+                </span><span class="s2">try </span><span class="s1">{ 
+                    dump(fd, pw, args); 
+                } </span><span class="s2">finally </span><span class="s1">{ 
+                    pw.flush(); 
+                } 
+            } 
+        }; 
+        thr.start(); 
+    } 
+ 
+    </span><span class="s0">/** 
+     * Print the object's state into the given stream. 
+     *  
+     * </span><span class="s3">@param </span><span class="s0">fd The raw file descriptor that the dump is being sent to. 
+     * </span><span class="s3">@param </span><span class="s0">fout The file to which you should dump your state.  This will be 
+     * closed for you after you return. 
+     * </span><span class="s3">@param </span><span class="s0">args additional arguments to the dump request. 
+     */</span><span class="s1"> 
+    </span><span class="s2">protected void </span><span class="s1">dump(FileDescriptor fd, PrintWriter fout, String[] args) { 
+    } 
+ 
+    </span><span class="s0">/** 
+     * </span><span class="s3">@param </span><span class="s0">in The raw file descriptor that an input data stream can be read from. 
+     * </span><span class="s3">@param </span><span class="s0">out The raw file descriptor that normal command messages should be written to. 
+     * </span><span class="s3">@param </span><span class="s0">err The raw file descriptor that command error messages should be written to. 
+     * </span><span class="s3">@param </span><span class="s0">args Command-line arguments. 
+     * </span><span class="s3">@param </span><span class="s0">resultReceiver Called when the command has finished executing, with the result code. 
+     * </span><span class="s3">@throws </span><span class="s0">RemoteException 
+     * </span><span class="s3">@hide</span><span class="s0"> 
+     */</span><span class="s1"> 
+    </span><span class="s2">public void </span><span class="s1">shellCommand(FileDescriptor in, FileDescriptor out, FileDescriptor err, 
+            String[] args, ResultReceiver resultReceiver) </span><span class="s2">throws </span><span class="s1">RemoteException { 
+        onShellCommand(in, out, err, args, resultReceiver); 
+    } 
+ 
+    </span><span class="s0">/** 
+     * Handle a call to {</span><span class="s3">@link </span><span class="s0">#shellCommand}.  The default implementation simply prints 
+     * an error message.  Override and replace with your own. 
+     * </span><span class="s4">&lt;p class=&quot;caution&quot;&gt;</span><span class="s0">Note: no permission checking is done before calling this method; you must 
+     * apply any security checks as appropriate for the command being executed. 
+     * Consider using {</span><span class="s3">@link </span><span class="s0">ShellCommand} to help in the implementation.</span><span class="s4">&lt;/p&gt;</span><span class="s0"> 
+     * </span><span class="s3">@hide</span><span class="s0"> 
+     */</span><span class="s1"> 
+    </span><span class="s2">public void </span><span class="s1">onShellCommand(FileDescriptor in, FileDescriptor out, FileDescriptor err, 
+            String[] args, ResultReceiver resultReceiver) </span><span class="s2">throws </span><span class="s1">RemoteException { 
+        FileOutputStream fout = </span><span class="s2">new </span><span class="s1">FileOutputStream(err != </span><span class="s2">null </span><span class="s1">? err : out); 
+        PrintWriter pw = </span><span class="s2">new </span><span class="s1">FastPrintWriter(fout); 
+        pw.println(</span><span class="s5">&quot;No shell command implementation.&quot;</span><span class="s1">); 
+        pw.flush(); 
+        resultReceiver.send(</span><span class="s6">0</span><span class="s1">, </span><span class="s2">null</span><span class="s1">); 
+    } 
+ 
+    </span><span class="s0">/** 
+     * Default implementation rewinds the parcels and calls onTransact.  On 
+     * the remote side, transact calls into the binder to do the IPC. 
+     */</span><span class="s1"> 
+    </span><span class="s2">public final boolean </span><span class="s1">transact(</span><span class="s2">int </span><span class="s1">code, Parcel data, Parcel reply, 
+            </span><span class="s2">int </span><span class="s1">flags) </span><span class="s2">throws </span><span class="s1">RemoteException { 
+        </span><span class="s2">if </span><span class="s1">(</span><span class="s2">false</span><span class="s1">) Log.v(</span><span class="s5">&quot;Binder&quot;</span><span class="s1">, </span><span class="s5">&quot;Transact: &quot; </span><span class="s1">+ code + </span><span class="s5">&quot; to &quot; </span><span class="s1">+ </span><span class="s2">this</span><span class="s1">); 
+ 
+        </span><span class="s2">if </span><span class="s1">(data != </span><span class="s2">null</span><span class="s1">) { 
+            data.setDataPosition(</span><span class="s6">0</span><span class="s1">); 
+        } 
+        </span><span class="s2">boolean </span><span class="s1">r = onTransact(code, data, reply, flags); 
+        </span><span class="s2">if </span><span class="s1">(reply != </span><span class="s2">null</span><span class="s1">) { 
+            reply.setDataPosition(</span><span class="s6">0</span><span class="s1">); 
+        } 
+        </span><span class="s2">return </span><span class="s1">r; 
+    } 
+     
+    </span><span class="s0">/** 
+     * Local implementation is a no-op. 
+     */</span><span class="s1"> 
+    </span><span class="s2">public void </span><span class="s1">linkToDeath(DeathRecipient recipient, </span><span class="s2">int </span><span class="s1">flags) { 
+    } 
+ 
+    </span><span class="s0">/** 
+     * Local implementation is a no-op. 
+     */</span><span class="s1"> 
+    </span><span class="s2">public boolean </span><span class="s1">unlinkToDeath(DeathRecipient recipient, </span><span class="s2">int </span><span class="s1">flags) { 
+        </span><span class="s2">return true</span><span class="s1">; 
+    } 
+     
+    </span><span class="s2">protected void </span><span class="s1">finalize() </span><span class="s2">throws </span><span class="s1">Throwable { 
+        </span><span class="s2">try </span><span class="s1">{ 
+            destroy(); 
+        } </span><span class="s2">finally </span><span class="s1">{ 
+            </span><span class="s2">super</span><span class="s1">.finalize(); 
+        } 
+    } 
+ 
+    </span><span class="s2">static void </span><span class="s1">checkParcel(IBinder obj, </span><span class="s2">int </span><span class="s1">code, Parcel parcel, String msg) { 
+        </span><span class="s2">if </span><span class="s1">(CHECK_PARCEL_SIZE &amp;&amp; parcel.dataSize() &gt;= </span><span class="s6">800</span><span class="s1">*</span><span class="s6">1024</span><span class="s1">) { 
+            </span><span class="s0">// Trying to send &gt; 800k, this is way too much</span><span class="s1"> 
+            StringBuilder sb = </span><span class="s2">new </span><span class="s1">StringBuilder(); 
+            sb.append(msg); 
+            sb.append(</span><span class="s5">&quot;: on &quot;</span><span class="s1">); 
+            sb.append(obj); 
+            sb.append(</span><span class="s5">&quot; calling &quot;</span><span class="s1">); 
+            sb.append(code); 
+            sb.append(</span><span class="s5">&quot; size &quot;</span><span class="s1">); 
+            sb.append(parcel.dataSize()); 
+            sb.append(</span><span class="s5">&quot; (data: &quot;</span><span class="s1">); 
+            parcel.setDataPosition(</span><span class="s6">0</span><span class="s1">); 
+            sb.append(parcel.readInt()); 
+            sb.append(</span><span class="s5">&quot;, &quot;</span><span class="s1">); 
+            sb.append(parcel.readInt()); 
+            sb.append(</span><span class="s5">&quot;, &quot;</span><span class="s1">); 
+            sb.append(parcel.readInt()); 
+            sb.append(</span><span class="s5">&quot;)&quot;</span><span class="s1">); 
+            Slog.wtfStack(TAG, sb.toString()); 
+        } 
+    } 
+ 
+    </span><span class="s2">private native final void </span><span class="s1">init(); 
+    </span><span class="s2">private native final void </span><span class="s1">destroy(); 
+ 
+    </span><span class="s0">// Entry point from android_util_Binder.cpp's onTransact</span><span class="s1"> 
+    </span><span class="s2">private boolean </span><span class="s1">execTransact(</span><span class="s2">int </span><span class="s1">code, </span><span class="s2">long </span><span class="s1">dataObj, </span><span class="s2">long </span><span class="s1">replyObj, 
+            </span><span class="s2">int </span><span class="s1">flags) { 
+        Parcel data = Parcel.obtain(dataObj); 
+        Parcel reply = Parcel.obtain(replyObj); 
+        </span><span class="s0">// theoretically, we should call transact, which will call onTransact,</span><span class="s1"> 
+        </span><span class="s0">// but all that does is rewind it, and we just got these from an IPC,</span><span class="s1"> 
+        </span><span class="s0">// so we'll just call it directly.</span><span class="s1"> 
+        </span><span class="s2">boolean </span><span class="s1">res; 
+        </span><span class="s0">// Log any exceptions as warnings, don't silently suppress them.</span><span class="s1"> 
+        </span><span class="s0">// If the call was FLAG_ONEWAY then these exceptions disappear into the ether.</span><span class="s1"> 
+        </span><span class="s2">try </span><span class="s1">{ 
+            res = onTransact(code, data, reply, flags); 
+        } </span><span class="s2">catch </span><span class="s1">(RemoteException|RuntimeException e) { 
+            </span><span class="s2">if </span><span class="s1">(LOG_RUNTIME_EXCEPTION) { 
+                Log.w(TAG, </span><span class="s5">&quot;Caught a RuntimeException from the binder stub implementation.&quot;</span><span class="s1">, e); 
+            } 
+            </span><span class="s2">if </span><span class="s1">((flags &amp; FLAG_ONEWAY) != </span><span class="s6">0</span><span class="s1">) { 
+                </span><span class="s2">if </span><span class="s1">(e </span><span class="s2">instanceof </span><span class="s1">RemoteException) { 
+                    Log.w(TAG, </span><span class="s5">&quot;Binder call failed.&quot;</span><span class="s1">, e); 
+                } </span><span class="s2">else </span><span class="s1">{ 
+                    Log.w(TAG, </span><span class="s5">&quot;Caught a RuntimeException from the binder stub implementation.&quot;</span><span class="s1">, e); 
+                } 
+            } </span><span class="s2">else </span><span class="s1">{ 
+                reply.setDataPosition(</span><span class="s6">0</span><span class="s1">); 
+                reply.writeException(e); 
+            } 
+            res = </span><span class="s2">true</span><span class="s1">; 
+        } </span><span class="s2">catch </span><span class="s1">(OutOfMemoryError e) { 
+            </span><span class="s0">// Unconditionally log this, since this is generally unrecoverable.</span><span class="s1"> 
+            Log.e(TAG, </span><span class="s5">&quot;Caught an OutOfMemoryError from the binder stub implementation.&quot;</span><span class="s1">, e); 
+            RuntimeException re = </span><span class="s2">new </span><span class="s1">RuntimeException(</span><span class="s5">&quot;Out of memory&quot;</span><span class="s1">, e); 
+            reply.setDataPosition(</span><span class="s6">0</span><span class="s1">); 
+            reply.writeException(re); 
+            res = </span><span class="s2">true</span><span class="s1">; 
+        } 
+        checkParcel(</span><span class="s2">this</span><span class="s1">, code, reply, </span><span class="s5">&quot;Unreasonably large binder reply buffer&quot;</span><span class="s1">); 
+        reply.recycle(); 
+        data.recycle(); 
+ 
+        </span><span class="s0">// Just in case -- we are done with the IPC, so there should be no more strict</span><span class="s1"> 
+        </span><span class="s0">// mode violations that have gathered for this thread.  Either they have been</span><span class="s1"> 
+        </span><span class="s0">// parceled and are now in transport off to the caller, or we are returning back</span><span class="s1"> 
+        </span><span class="s0">// to the main transaction loop to wait for another incoming transaction.  Either</span><span class="s1"> 
+        </span><span class="s0">// way, strict mode begone!</span><span class="s1"> 
+        StrictMode.clearGatheredViolations(); 
+ 
+        </span><span class="s2">return </span><span class="s1">res; 
+    } 
+} 
+ 
+</span><span class="s2">final class </span><span class="s1">BinderProxy </span><span class="s2">implements </span><span class="s1">IBinder { 
+    </span><span class="s2">public native boolean </span><span class="s1">pingBinder(); 
+    </span><span class="s2">public native boolean </span><span class="s1">isBinderAlive(); 
+ 
+    </span><span class="s2">public </span><span class="s1">IInterface queryLocalInterface(String descriptor) { 
+        </span><span class="s2">return null</span><span class="s1">; 
+    } 
+ 
+    </span><span class="s2">public boolean </span><span class="s1">transact(</span><span class="s2">int </span><span class="s1">code, Parcel data, Parcel reply, </span><span class="s2">int </span><span class="s1">flags) </span><span class="s2">throws </span><span class="s1">RemoteException { 
+        Binder.checkParcel(</span><span class="s2">this</span><span class="s1">, code, data, </span><span class="s5">&quot;Unreasonably large binder buffer&quot;</span><span class="s1">); 
+        </span><span class="s2">if </span><span class="s1">(Binder.isTracingEnabled()) { Binder.getTransactionTracker().addTrace(); } 
+        </span><span class="s2">return </span><span class="s1">transactNative(code, data, reply, flags); 
+    } 
+ 
+    </span><span class="s2">public native </span><span class="s1">String getInterfaceDescriptor() </span><span class="s2">throws </span><span class="s1">RemoteException; 
+    </span><span class="s2">public native boolean </span><span class="s1">transactNative(</span><span class="s2">int </span><span class="s1">code, Parcel data, Parcel reply, 
+            </span><span class="s2">int </span><span class="s1">flags) </span><span class="s2">throws </span><span class="s1">RemoteException; 
+    </span><span class="s2">public native void </span><span class="s1">linkToDeath(DeathRecipient recipient, </span><span class="s2">int </span><span class="s1">flags) 
+            </span><span class="s2">throws </span><span class="s1">RemoteException; 
+    </span><span class="s2">public native boolean </span><span class="s1">unlinkToDeath(DeathRecipient recipient, </span><span class="s2">int </span><span class="s1">flags); 
+ 
+    </span><span class="s2">public void </span><span class="s1">dump(FileDescriptor fd, String[] args) </span><span class="s2">throws </span><span class="s1">RemoteException { 
+        Parcel data = Parcel.obtain(); 
+        Parcel reply = Parcel.obtain(); 
+        data.writeFileDescriptor(fd); 
+        data.writeStringArray(args); 
+        </span><span class="s2">try </span><span class="s1">{ 
+            transact(DUMP_TRANSACTION, data, reply, </span><span class="s6">0</span><span class="s1">); 
+            reply.readException(); 
+        } </span><span class="s2">finally </span><span class="s1">{ 
+            data.recycle(); 
+            reply.recycle(); 
+        } 
+    } 
+     
+    </span><span class="s2">public void </span><span class="s1">dumpAsync(FileDescriptor fd, String[] args) </span><span class="s2">throws </span><span class="s1">RemoteException { 
+        Parcel data = Parcel.obtain(); 
+        Parcel reply = Parcel.obtain(); 
+        data.writeFileDescriptor(fd); 
+        data.writeStringArray(args); 
+        </span><span class="s2">try </span><span class="s1">{ 
+            transact(DUMP_TRANSACTION, data, reply, FLAG_ONEWAY); 
+        } </span><span class="s2">finally </span><span class="s1">{ 
+            data.recycle(); 
+            reply.recycle(); 
+        } 
+    } 
+ 
+    </span><span class="s2">public void </span><span class="s1">shellCommand(FileDescriptor in, FileDescriptor out, FileDescriptor err, 
+            String[] args, ResultReceiver resultReceiver) </span><span class="s2">throws </span><span class="s1">RemoteException { 
+        Parcel data = Parcel.obtain(); 
+        Parcel reply = Parcel.obtain(); 
+        data.writeFileDescriptor(in); 
+        data.writeFileDescriptor(out); 
+        data.writeFileDescriptor(err); 
+        data.writeStringArray(args); 
+        resultReceiver.writeToParcel(data, </span><span class="s6">0</span><span class="s1">); 
+        </span><span class="s2">try </span><span class="s1">{ 
+            transact(SHELL_COMMAND_TRANSACTION, data, reply, </span><span class="s6">0</span><span class="s1">); 
+            reply.readException(); 
+        } </span><span class="s2">finally </span><span class="s1">{ 
+            data.recycle(); 
+            reply.recycle(); 
+        } 
+    } 
+ 
+    BinderProxy() { 
+        mSelf = </span><span class="s2">new </span><span class="s1">WeakReference(</span><span class="s2">this</span><span class="s1">); 
+    } 
+     
+    @Override 
+    </span><span class="s2">protected void </span><span class="s1">finalize() </span><span class="s2">throws </span><span class="s1">Throwable { 
+        </span><span class="s2">try </span><span class="s1">{ 
+            destroy(); 
+        } </span><span class="s2">finally </span><span class="s1">{ 
+            </span><span class="s2">super</span><span class="s1">.finalize(); 
+        } 
+    } 
+     
+    </span><span class="s2">private native final void </span><span class="s1">destroy(); 
+     
+    </span><span class="s2">private static final void </span><span class="s1">sendDeathNotice(DeathRecipient recipient) { 
+        </span><span class="s2">if </span><span class="s1">(</span><span class="s2">false</span><span class="s1">) Log.v(</span><span class="s5">&quot;JavaBinder&quot;</span><span class="s1">, </span><span class="s5">&quot;sendDeathNotice to &quot; </span><span class="s1">+ recipient); 
+        </span><span class="s2">try </span><span class="s1">{ 
+            recipient.binderDied(); 
+        } 
+        </span><span class="s2">catch </span><span class="s1">(RuntimeException exc) { 
+            Log.w(</span><span class="s5">&quot;BinderNative&quot;</span><span class="s1">, </span><span class="s5">&quot;Uncaught exception from death notification&quot;</span><span class="s1">, 
+                    exc); 
+        } 
+    } 
+     
+    </span><span class="s2">final private </span><span class="s1">WeakReference mSelf; 
+    </span><span class="s2">private long </span><span class="s1">mObject; 
+    </span><span class="s2">private long </span><span class="s1">mOrgue; 
+} 
+</span></pre>
+</body>
+</html>
