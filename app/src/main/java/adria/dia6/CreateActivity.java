@@ -39,7 +39,7 @@ import de.hdodenhof.circleimageview.CircleImageView;
 public class CreateActivity extends AppCompatActivity implements ActivityCompat.OnRequestPermissionsResultCallback {
     CircleImageView mImageView;
     String mCurrentPhotoPath;
-    Button button;
+    Button mbutton;
     EditText name;
     private FirebaseStorage storage = FirebaseStorage.getInstance();
     private  StorageReference storageRef = storage.getReference();
@@ -51,12 +51,12 @@ public class CreateActivity extends AppCompatActivity implements ActivityCompat.
         setContentView(R.layout.create);
 
 
-        button = (Button) findViewById(R.id.button);
+        mbutton = (Button) findViewById(R.id.button);
         mImageView = (CircleImageView) findViewById(R.id.image_view);
 
 
 
-        button.setOnClickListener(new View.OnClickListener() {
+        mbutton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 name = (EditText) findViewById(R.id.editText2);
